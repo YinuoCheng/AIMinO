@@ -1,0 +1,28 @@
+services:
+  llm-agent:
+    profiles: ["gui"]
+    platform: linux/amd64
+    build: .
+    depends_on:
+      - omeroserver
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      LLM_BACKEND: openai
+      OMERO_HOST: omeroserver
+      OMERO_PORT: "4064"
+      DISPLAY: ":99"
+    
+    networks:
+      - omero
+    
+    ports:
+      - "6080:6080"
+      - "5901:5901"
+    
+    volumes:
+      - ./llm-agent:/app        
+      - vae_cache:/app/.cache
+
+volumes:
+  vae_cache: {}
+
