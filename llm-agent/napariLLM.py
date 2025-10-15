@@ -3,9 +3,10 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, Field, confloat, ValidationError, TypeAdapter
 import napari
 from qtpy import QtWidgets
+from huggingface_hub import InferenceClient
 
 # ======================
-# 1) Command schema (Pydantic v2)
+# 1) Command schema 
 # ======================
 
 Float = confloat(strict=False)
@@ -83,8 +84,11 @@ def llm_status():
         m = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
         return f"LLM: {'on' if ok else 'off'} (openai, model={m})"
     if b == "ollama":
-        m = os.getenv("OLLAMA_MODEL", "llama3.1")
+        m = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
         return f"LLM: on (ollama, model={m})"
+    if b in ("hf", "huggingface"):
+        m = os.getenv("HF_MODEL", "meta-llama/Llama-3.2-3B-Instruct")
+        return f"LLM: on (huggingface, model={m})"
     return "LLM: off (using regex fallback)"
 
 # ---- napari 0.6 camera-safe helpers ----
@@ -192,7 +196,7 @@ def toggle_panel(viewer, name, open_it=True):
         return f"Error toggling panel '{name}': {e}"
 
 # ======================
-# 3) Regex parser (fast local)
+# 3) Regex parser 
 # ======================
 
 def parse_command_regex(text: str) -> Allowed:
@@ -272,9 +276,30 @@ def llm_openai(text: str) -> dict:
             time.sleep(1.5*(i+1)); continue
         raise RuntimeError(f"{r.status_code} {r.text[:200]}")
 
+def _strip_code_fences(s: str) -> str:
+    s = s.strip()
+    if s.startswith("```"):
+        s = s.strip("`")
+        
+        s = s.split("\n", 1)[-1]
+    return s
+
+def llm_hf(text: str) -> dict:
+    model = os.getenv("HF_MODEL", "meta-llama/Llama-3.2-3B-Instruct")
+    token = os.getenv("HF_TOKEN")  
+    base_url = os.getenv("HF_BASE_URL")  
+    client = InferenceClient(model=model, token=token, base_url=base_url)
+    messages = [
+        {"role": "system", "content": f"{SYS_PROMPT}\nReturn JSON only. No prose, no code"},
+        {"role": "user", "content": text}
+    ]
+    
+    resp = client.chat_completion(messages, max_tokens=256, temperature=0, top_p=1.0)
+    return json.loads(_strip_code_fences(resp.choices[0].message.content))
+
 def llm_ollama(text: str) -> dict:
     base = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
-    model = os.getenv("OLLAMA_MODEL", "llama3.1")
+    model = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
     url = f"{base}/api/chat"
     payload = {
         "model": model,
@@ -299,8 +324,10 @@ def llm_parse_command(text: str) -> Allowed:
         raw = llm_openai(text)
     elif backend == "ollama":
         raw = llm_ollama(text)
+    elif backend in ("hf", "huggingface"):
+        raw = llm_hf(text)
     else:
-        raise RuntimeError("LLM_BACKEND must be 'openai' or 'ollama'")
+        raise RuntimeError("LLM_BACKEND must be 'openai' or 'ollama' or 'huggingface'")
     try:
         return ALLOWED_ADAPTER.validate_python(raw)
     except ValidationError:
