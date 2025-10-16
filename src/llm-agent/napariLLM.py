@@ -1,4 +1,5 @@
 import os, re, json, time, requests
+from pathlib import Path
 from typing import Annotated, Literal
 from pydantic import BaseModel, Field, confloat, ValidationError, TypeAdapter
 import napari
@@ -89,6 +90,9 @@ def llm_status():
     if b in ("hf", "huggingface"):
         m = os.getenv("HF_MODEL", "meta-llama/Llama-3.2-3B-Instruct")
         return f"LLM: on (huggingface, model={m})"
+    if b in ("gemini", "google"):
+        m = os.getenv("GEMINI_MODEL", "gemini-1.5-flash-latest")
+        return f"LLM: on (gemini, model={m})"
     return "LLM: off (using regex fallback)"
 
 # ---- napari 0.6 camera-safe helpers ----
@@ -240,19 +244,31 @@ def parse_command_regex(text: str) -> Allowed:
 # 4) LLM backends
 # ======================
 
-SYS_PROMPT = """You convert a short user request into a JSON command for a napari viewer.
-Allowed actions and JSON examples:
-1) {"action":"layer_visibility","op":"show|hide|toggle","name":"<layer name>"}
-2) {"action":"panel_toggle","op":"open|close","name":"<panel name>"}
-3) {"action":"zoom_box","box":[x1,y1,x2,y2]}
-4) {"action":"center_on","point":[x,y]}
-5) {"action":"set_zoom","zoom":1.6}
-6) {"action":"fit_to_layer","name":"<layer name>"}
-7) {"action":"list_layers"}
-8) {"action":"help"}
+def _load_function_guide() -> str:
+    """Read NapariLLM_FUNCTIONS.md to inject latest function specs into the prompt."""
+    guide_path = Path(__file__).with_name("NapariLLM_FUNCTIONS.md")
+    try:
+        content = guide_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        content = (
+            "# Function guide missing\n"
+            "Allowed actions:\n"
+            "- layer_visibility\n- panel_toggle\n- zoom_box\n"
+            "- center_on\n- set_zoom\n- fit_to_layer\n- list_layers\n- help\n"
+            "If unsure, return {\"action\":\"help\"}."
+        )
+    return content
+
+FUNCTION_GUIDE_TEXT = _load_function_guide()
+
+SYS_PROMPT = f"""You convert a short user request into a JSON command for a napari viewer.
+Follow strictly the function definitions below (including schemas, safety rules, and workflow):
+---
+{FUNCTION_GUIDE_TEXT}
+---
 Rules:
-- Respond with JSON ONLY. No prose.
-- If unsure, return {"action":"help"}.
+- Respond with JSON ONLY (single object). No prose.
+- If unsure or the request is outside the allowed scope, return {{"action":"help"}}.
 """
 
 def llm_openai(text: str) -> dict:
@@ -318,6 +334,41 @@ def llm_ollama(text: str) -> dict:
             time.sleep(1.5*(i+1)); continue
         raise RuntimeError(f"Ollama error {r.status_code}: {r.text[:200]}")
 
+def llm_gemini(text: str) -> dict:
+    api_key = os.getenv("GEMINI_API_KEY")
+    model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash-latest")
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY not set")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "systemInstruction": {
+            "role": "system",
+            "parts": [{"text": f"{SYS_PROMPT}\nReturn JSON only. No prose, no code blocks."}]
+        },
+        "contents": [
+            {"role": "user", "parts": [{"text": text}]}
+        ],
+        "generationConfig": {
+            "temperature": 0,
+            "topP": 1.0,
+            "responseMimeType": "application/json"
+        }
+    }
+    for i in range(3):
+        r = requests.post(url, params={"key": api_key}, headers=headers, json=payload, timeout=30)
+        if r.status_code == 200:
+            data = r.json()
+            try:
+                content = data["candidates"][0]["content"]["parts"][0]["text"]
+            except (KeyError, IndexError):
+                raise RuntimeError(f"Gemini response missing content: {data}")
+            return json.loads(_strip_code_fences(content))
+        if r.status_code in (429, 500, 502, 503, 504) and i < 2:
+            time.sleep(1.5 * (i + 1))
+            continue
+        raise RuntimeError(f"Gemini error {r.status_code}: {r.text[:200]}")
+
 def llm_parse_command(text: str) -> Allowed:
     backend = os.getenv("LLM_BACKEND", "").lower()
     if backend == "openai":
@@ -326,8 +377,10 @@ def llm_parse_command(text: str) -> Allowed:
         raw = llm_ollama(text)
     elif backend in ("hf", "huggingface"):
         raw = llm_hf(text)
+    elif backend in ("gemini", "google"):
+        raw = llm_gemini(text)
     else:
-        raise RuntimeError("LLM_BACKEND must be 'openai' or 'ollama' or 'huggingface'")
+        raise RuntimeError("LLM_BACKEND must be 'openai', 'ollama', 'huggingface', or 'gemini'")
     try:
         return ALLOWED_ADAPTER.validate_python(raw)
     except ValidationError:

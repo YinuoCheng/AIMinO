@@ -11,6 +11,8 @@ services:
       LLM_BACKEND: ${LLM_BACKEND:-huggingface}
       HF_MODEL: ${HF_MODEL:-meta-llama/Llama-3.2-3B-Instruct}
       HF_TOKEN: ${HF_TOKEN}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-1.5-flash-latest}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
       OMERO_HOST: omeroserver
       OMERO_PORT: "4064"
       DISPLAY: ":99"
@@ -35,4 +37,3 @@ services:
 
 volumes:
   vae_cache: {}
-

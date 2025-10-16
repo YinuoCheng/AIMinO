@@ -1,2 +1,3 @@
 .DS_Store
 ~cd "/Users/ytian/Documents/School Courses/Biostatistics_2025Fall/AC 215/Project/Milestone2/AIMinO" && echo "~$*" >> .gitignore
+src/.env
