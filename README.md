@@ -27,7 +27,7 @@ For detailed description of the imaging data, please refer to Data description f
 
 ## Quick Overview of Containers 
 
-### **Napari LLM Agent**  Available via noVNC at http://localhost:6080/
+### **Napari LLM Agent** : Available via noVNC at http://localhost:6080/
 - This is the main container that serves as the core of the AIMinO system. It contains Napari, a viewer for multiplexing image analysis, together with LLM agent that processes user requests and generates executable commands for Napari. Users can access to the Napari GUI through VNC and enter specific requests to visualize and analyze the multiplexing images. The LLM component will translate user requests into actions in json format, and the agent will then evaluate and process this output from LLM to generate executable commands to control Napari. This pipeline allows researchers to manage complex imaging workflows through natural language interaction, enabling advanced multiplexed image analysis with simple, conversational commands.
 
 ### **OMERO.server** Access: ports 4063 and 4064
