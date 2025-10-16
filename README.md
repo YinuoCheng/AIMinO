@@ -33,7 +33,7 @@ For detailed description of the imaging data, please refer to Data description f
 ### **OMERO.server** Access: Listening on ports `4063` and `4064`
 - This is the one of the components of the OMERO system that provides image data storage and management services through its connection to the PostgreSQL database. It acts as a gate that allows users to store and retrieve biomedical imaging data for analysis. 
 
-### **OMERO.web**  Access: Available at http://localhost:8080/
+### **OMERO.web**  port 8080
 - This is the web-based user interface component of the OMERO system that allows users to access to OMERO functionality, which includes image viewing and annotation tools. 
 
 ### **Database**
